@@ -23,11 +23,13 @@ print()
 
 #### directory definitions
 home_dir = os.path.dirname( os.path.realpath(__file__) )
+outputDirName = 'corrected'
 
 runImageJ_Script = True
 showDebuggingOutput = False
-make_black = False
+#make_black = False
 correctionAttempt = False
+forceCorrectionAttempt = False
 delete_interim_results = True
 col_count = 2
 row_count = 2
@@ -41,12 +43,13 @@ def processArguments():
     global row_count
     global showDebuggingOutput
     global runImageJ_Script
+    global forceCorrectionAttempt
     col_changed = False
     row_changed = False
     argv = sys.argv[1:]
-    usage = sys.argv[0] + " [-h] [-c] [-i] [-x] [-y] [-r] [-d]"
+    usage = sys.argv[0] + " [-h] [-f] [-c] [-i] [-x] [-y] [-r] [-d]"
     try:
-        opts, args = getopt.getopt(argv,"hicx:y:rd",["noImageJ="])
+        opts, args = getopt.getopt(argv,"hicfx:y:rd",["noImageJ="])
     except getopt.GetoptError:
         print( usage )
     for opt, arg in opts:
@@ -54,6 +57,7 @@ def processArguments():
             print( 'usage: ' + usage )
             print( '-h,                  : show this help' )
             print( '-i, --noImageJ       : skip ImageJ processing' )
+            print( '-f,                  : force to correct holes for all tiles [off]' )
             print( '-c,                  : attempt to correct holes [off]' )
             print( '-x,                  : amount of slices in x direction [' + str( col_count ) + ']' )
             print( '-y,                  : amount of slices in y direction [' + str( row_count ) + ']' )
@@ -63,6 +67,9 @@ def processArguments():
             sys.exit()
         elif opt in ("-i", "-noImageJ"):
             runImageJ_Script = False
+        elif opt in ("-f"):
+            forceCorrectionAttempt = True
+            correctionAttempt = True
         elif opt in ("-c"):
             correctionAttempt = True
         elif opt in ("-x"):
@@ -111,15 +118,17 @@ def imageJInPATH():
         else:
             print( "make sure Fiji/ImageJ is accessible from command line" )
         return False
-    elif ( showDebuggingOutput ) : print( "Fiji/ImageJ found!" )
+    elif showDebuggingOutput : print( "Fiji/ImageJ found!" )
     return True
 
+# start imageJ, running the MIST stitching script.
+# The script has to be modified to work with another machine!
 def MIST_Stitching( directory, x_tile_count, y_tile_count ):
     global home_dir
     command = "ImageJ-win64.exe -macro \"" + home_dir +"\mist_stitching_maps.ijm\" \"" + directory + "|" + os.path.dirname(os.path.dirname(directory)) + "|" + os.path.basename(workingDirectory) + "|" + x_tile_count + "|" + y_tile_count + "|\""
 
     print( "  starting ImageJ Macro..." )
-    if ( showDebuggingOutput ) : print( '  ' + command )
+    if showDebuggingOutput : print( '  ' + command )
     try:
         subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
@@ -130,6 +139,9 @@ def equalize_histogram( source ):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     return clahe.apply(source)
 
+
+# load reference image and populate all relevant variables,
+# so they have to be calculated and loaded only once
 ref_loaded = False
 ref_values = False
 ref_counts = False
@@ -150,7 +162,8 @@ def load_reference( path ):
     ref_quantiles /= ref_quantiles[-1]
     if correctionAttempt: ref_avg_color = get_avg_color( reference_normalized )
 
-#https://stackoverflow.com/questions/32655686/histogram-matching-of-two-images-in-python-2-x
+# the actual histogram matching, modified from this source:
+# https://stackoverflow.com/questions/32655686/histogram-matching-of-two-images-in-python-2-x
 def hist_matching( source, cropped_images = None ):
     global ref_values
     global ref_counts
@@ -158,8 +171,8 @@ def hist_matching( source, cropped_images = None ):
     global ref_avg_color
     global showDebuggingOutput
     ignore_until_color = 0
-    # x_values: color values from 0-255 for 8 bit
-    # x_counts: counts of these color values
+    # _values: color values from 0-255 for 8 bit
+    # _counts: counts of these color values
     src_values, bin_idx, src_counts = np.unique( source.ravel(), return_inverse=True, return_counts=True )
     
     # searching for the best fitting cropped image in the given list and trying to fit this image to the given histogram instead of the full image.
@@ -187,12 +200,14 @@ def hist_matching( source, cropped_images = None ):
     interp_ref_values = interp_ref_values.astype( source.dtype )
     return interp_ref_values[bin_idx].reshape( source.shape )
 
+# cut an image to subtiles
+# return the croped images in an array/list
 def sliceImage( workingDirectory, filename ):
     global showDebuggingOutput
     global col_count
     global row_count
-    namePrefix = filename.split( '.' )
-    image = cv2.imread( workingDirectory + '/' + filename, 0 )#tiff.imread( workingDirectory + '/' + filename )
+
+    image = cv2.imread( workingDirectory + '/' + filename, 0 )
     height, width = image.shape[:2]
 
     #cropping
@@ -201,20 +216,19 @@ def sliceImage( workingDirectory, filename ):
     cropped_images = []
     for i in range(row_count): # start at i = 0 to row_count-1
         for j in range(col_count): # start at j = 0 to col_count-1
-            cropped = image[(i*crop_height):((i+1)*crop_height), j*crop_height:((j+1)*crop_width)]
-            cropped_images.append(cropped)
+            # create the subimage and append it to the list of cropped subimages
+            cropped_images.append( image[(i*crop_height):((i+1)*crop_height), j*crop_height:((j+1)*crop_width)] )
 
     image=None
-    cropped=None
     if showDebuggingOutput: print( "  - cropped image to " + str( len( cropped_images ) ) + " parts")
     return cropped_images
 
+# return the average color / brightness of an image
 def get_avg_color( source ):
     avg_color = np.average(source.ravel(), axis=0)
-    avg_color = round( avg_color,1 )
-    #print( "  - avg_color: " + str( avg_color ) )
-    return avg_color
+    return round( avg_color,1 )
 
+'''
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
 brightness_margin = 20
 def make_black( source ):
@@ -227,6 +241,7 @@ def make_black( source ):
     print( "  - lowest maxima " + str( lowest_maxima ) )
     print( compactness )
     return lowest_maxima
+'''
 
 ### actual program start
 processArguments()
@@ -237,7 +252,6 @@ print( "                                                   ", end="\r" )
 workingDirectory = os.path.dirname( referenceFilePath )
 if ( showDebuggingOutput ) : print( "Selected working directory: " + os.path.dirname( referenceFilePath ) )
 if ( showDebuggingOutput ) : print( "Selected reference file: " + os.path.basename( referenceFilePath ) )
-outputDirName = 'corrected'
 count = 0
 position = 0
 ## count files
@@ -256,8 +270,7 @@ load_reference( referenceFilePath )
 
 ignore_until_color = 0
 if os.path.isdir( workingDirectory ) :
-    ## processing files
-    #hist_difference_sum = 0
+    # processing files
     last_image_name = ""
     for file in os.listdir( workingDirectory ):
         if ( file.endswith( ".tif" ) or file.endswith( ".TIF" ) ):
@@ -265,30 +278,36 @@ if os.path.isdir( workingDirectory ) :
             position = position + 1
             print( " Analysing " + filename + " (" + str(position) + "/" + str(count) + ")" )
             source = cv2.imread(workingDirectory + "/" + file, 0)#, mode='RGB')
-            if correctionAttempt:
+            # check if correction attempt is necessary 
+            if correctionAttempt or forceCorrectionAttempt:
+                # if the average color of an image is higher than "allowed_brightness_difference", do a correction attempt
                 src_avg_color = get_avg_color( equalize_histogram( source ) )
-                if src_avg_color < ref_avg_color - 5 or src_avg_color > ref_avg_color + 5:
-                    #if showDebuggingOutput : 
-                    print( "  - the image seems to have a big deviation from the reference image ( " + str( src_avg_color ) + " vs. " + str( ref_avg_color ) + " )" )
+                allowed_brightness_difference = 5
+                if ( (src_avg_color < ref_avg_color - allowed_brightness_difference) or (src_avg_color > ref_avg_color + allowed_brightness_difference) or forceCorrectionAttempt ):
+                    # crop the images and run histogram matching using the cropped images instead
+                    if forceCorrectionAttempt : print( "  - forced correction ( " + str( src_avg_color ) + " vs. " + str( ref_avg_color ) + " )" )
+                    else : print( "  - the image seems to have a big deviation from the reference image ( " + str( src_avg_color ) + " vs. " + str( ref_avg_color ) + " )" )
                     cropped_images = sliceImage( workingDirectory, filename )
                     matched = hist_matching( source, cropped_images )
                 else:
+                    if showDebuggingOutput : print( "  - the image seems to have a small deviation from the reference image ( " + str( src_avg_color ) + " vs. " + str( ref_avg_color ) + " )" )
                     matched = hist_matching( source )
             else:
                 matched = hist_matching( source )
+            # save the tile
             cv2.imwrite( targetDirectory + filename, matched )
             last_image_name = filename
-    #if ( showDebuggingOutput ) : print( round( hist_difference_sum, 4) )
+    # stitch using MIST
     if ( runImageJ_Script and imageJInPATH() ):
-        # Tile_005-005-000000_0-000.tif
-        dim = last_image_name.split("_")
-        # ..., 005-005-000000, ...
-        dim = dim[1].split("-")
-        # 005, 005, ...
+        # get dimensions from last file name: Tile_005-005-000000_0-000.tif
+        dim = last_image_name.split("_")# ..., 005-005-000000, ...
+        dim = dim[1].split("-")# 005, 005, ...
+        
         MIST_Stitching( targetDirectory, dim[0].lstrip("0"), dim[1].lstrip("0") )
+        #remove directory wit corrected tiles
         if delete_interim_results :
             shutil.rmtree( targetDirectory )
     else:
-        if ( showDebuggingOutput ) : print( "...doing nothing!" )
+        if showDebuggingOutput : print( "...doing nothing!" )
 
 print( "Script DONE!" )

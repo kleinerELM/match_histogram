@@ -17,6 +17,7 @@ cudadevice0minor = 1;
 macro "mist_stitching_maps" {
 	// check if an external argument is given or define the options
 	arg = getArgument();
+	tilesStartAt = 1;
 	if ( arg == "" ) {
 		folder = getDirectory("Choose a Directory");
 		//define number of slices for uniformity analysis
@@ -39,6 +40,7 @@ macro "mist_stitching_maps" {
 	print("  Output Folder: " + outputFolder);
 	print("  Tiles in x direction: " + tilesX);
 	print("  Tiles in y direction: " + tilesY);
+	print("  Tiles start At: " + tilesStartAt);
 	print("------------");
 	
 	//directory handling
@@ -48,7 +50,7 @@ macro "mist_stitching_maps" {
 	print( fijiPath );
 	pattern = "Tile_0{rr}-0{cc}-000000_0-000.tif";
 	overlap = "10.5";
-	run("MIST", "gridwidth=5 gridheight=5 starttilerow=1 starttilecol=1 imagedir=["+ folder +"] filenamepattern="+pattern+" filenamepatterntype=ROWCOL gridorigin=UL assemblefrommetadata=false globalpositionsfile=[] numberingpattern=HORIZONTALCOMBING startrow=0 startcol=0 extentwidth=" + tilesX + " extentheight=" + tilesY + " timeslices=0 istimeslicesenabled=false outputpath=["+outputFolder+"] displaystitching=true outputfullimage=true outputmeta=false outputimgpyramid=false blendingmode=LINEAR blendingalpha=NaN outfileprefix=[" + outputPrefix +" ] programtype=CUDA numcputhreads=" + numcputhreads + " loadfftwplan=true savefftwplan=true fftwplantype=MEASURE fftwlibraryname=libfftw3 fftwlibraryfilename=libfftw3.dll planpath=[" + fijiPath + "\lib\fftw\fftPlans] fftwlibrarypath=[" + fijiPath + "lib\fftw] stagerepeatability=200 horizontaloverlap=" + overlap + " verticaloverlap=" + overlap + " numfftpeaks=0 overlapuncertainty=NaN isusedoubleprecision=true isusebioformats=false issuppressmodelwarningdialog=false isenablecudaexceptions=false translationrefinementmethod=SINGLE_HILL_CLIMB numtranslationrefinementstartpoints=16 headless=false cudadevice0id=" + cudadevice0id + " cudadevice0name=[" + cudadevice0name + "] cudadevice0major=" + cudadevice0major + " cudadevice0minor=" + cudadevice0minor + " loglevel=MANDATORY debuglevel=NONE");
+	run("MIST", "gridwidth=" + tilesX + " gridheight=" + tilesY + " starttilerow=" + tilesStartAt + " starttilecol=" + tilesStartAt + " imagedir=["+ folder +"] filenamepattern="+pattern+" filenamepatterntype=ROWCOL gridorigin=UL assemblefrommetadata=false globalpositionsfile=[] numberingpattern=HORIZONTALCOMBING startrow=0 startcol=0 extentwidth=5 extentheight=5 timeslices=0 istimeslicesenabled=false outputpath=["+outputFolder+"] displaystitching=true outputfullimage=true outputmeta=false outputimgpyramid=false blendingmode=LINEAR blendingalpha=NaN outfileprefix=[" + outputPrefix +" ] programtype=CUDA numcputhreads=" + numcputhreads + " loadfftwplan=true savefftwplan=true fftwplantype=MEASURE fftwlibraryname=libfftw3 fftwlibraryfilename=libfftw3.dll planpath=[" + fijiPath + "\lib\fftw\fftPlans] fftwlibrarypath=[" + fijiPath + "lib\fftw] stagerepeatability=200 horizontaloverlap=" + overlap + " verticaloverlap=" + overlap + " numfftpeaks=0 overlapuncertainty=NaN isusedoubleprecision=true isusebioformats=false issuppressmodelwarningdialog=false isenablecudaexceptions=false translationrefinementmethod=SINGLE_HILL_CLIMB numtranslationrefinementstartpoints=16 headless=false cudadevice0id=" + cudadevice0id + " cudadevice0name=[" + cudadevice0name + "] cudadevice0major=" + cudadevice0major + " cudadevice0minor=" + cudadevice0minor + " loglevel=MANDATORY debuglevel=NONE");
 	//selectWindow(outputPrefix+" Full_Stitching_Image");
 	//run("Enhance Contrast...", "saturated=0.3 normalize");
 	//saveAs("Tiff", outputFolder + cutName );
