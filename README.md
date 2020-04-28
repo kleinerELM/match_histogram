@@ -5,14 +5,14 @@ match_histogram.
 
 The ImageJ macro mist_stitching_maps.ijm has to be changed according to the used computer. Record a macro in ImageJ, run MIST using CUDA to determine the neccessary settings!
 
-## match_histogram
+## match_histogram.py
 A script to match the histogram of a bunch of images which can be merged to a larger image
 
 Select a reference image. The histogram of the other images in the same folder will be matched to the histogram of the reference image.
 
 This script was programmed becaus of a brightness reduction within stiched SEM images of a MAPS project.
 
-start the script using the following command:
+Start the script using the following command:
 
 ```bash
 python ./match_histogram.py
@@ -47,15 +47,19 @@ usage: D:\Nextcloud\Uni\WdB\REM\Fiji Plugins & Macros\Selbstgeschrieben\match_hi
 -d                   : show debug output
 ```
 
-## background removal
-
-First
+## background_removal.py
 
 This script calculates a polynomial fit as proposed in https://stackoverflow.com/questions/33964913/equivalent-of-polyfit-for-a-2d-polynomial-in-python by https://stackoverflow.com/users/12063126/paddy-harrison using a selected reference image.
 
 The calculated background will then be substracted from all images.
 
 The script stitches the images automatically using MIST and ImageJ after the correction.
+
+start the script using the following command:
+
+```bash
+python ./background_removal.py
+```
 
 ### help output
 ```
