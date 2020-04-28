@@ -4,8 +4,10 @@ import numpy as np
 import tkinter as tk
 import cv2
 from tkinter import filedialog
-import time
 import multiprocessing
+
+# import shared libary
+import shared_functions as sf
 
 def programInfo():
     print("#########################################################")
@@ -81,46 +83,6 @@ def processArguments( settings ):
     print( '' )
     return settings
 
-def cmdExists(cmd):
-    return shutil.which(cmd) is not None
-
-def imageJInPATH( settings ):
-    if ( not cmdExists( "ImageJ-win64.exe" ) ):
-        if os.name == 'nt':
-            print( "make sure you have Fiji/ImageJ installed and added the program path to the PATH variable" )
-            command = "rundll32 sysdm.cpl,EditEnvironmentVariables"
-            try:
-                subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
-            except subprocess.CalledProcessError as e:
-                print( "Error" )
-                pass
-            print( "make sure you have Fiji/ImageJ installed and added the program path to the PATH variable" )
-        else:
-            print( "make sure Fiji/ImageJ is accessible from command line" )
-        return False
-    elif settings["showDebuggingOutput"] : print( "Fiji/ImageJ found!" )
-    return True
-
-# start imageJ, running the MIST stitching script.
-# The script has to be modified to work with another machine!
-def MIST_Stitching( settings, x_tile_count, y_tile_count ):
-    command = "ImageJ-win64.exe -macro \"" + settings["home_dir"] +"\mist_stitching_maps.ijm\" "
-    command += "\"" + settings["targetDirectory"] + "|" + os.path.dirname(settings["workingDirectory"]) + "|" 
-    command += os.path.basename(settings["referenceFilePath"]) + "|" + x_tile_count + "|" + y_tile_count + "|" + str( settings["processCount"] ) + "\""
-
-    print( "  starting ImageJ Macro..." )
-    if settings["showDebuggingOutput"] : print( '  ' + command )
-    try:
-        subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        print( "  Error" )
-        pass
-
-def equalize_histogram( source ):
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    return clahe.apply(source)
-
-
 # load reference image and populate all relevant variables,
 # so they have to be calculated and loaded only once
 refImg = {
@@ -131,9 +93,11 @@ refImg = {
 }
 
 def load_reference( settings ):
+    print( " calculating background of reference image" )
+    
     reference = cv2.imread( settings["referenceFilePath"], 0 )#, mode='RGB')
     ref_gauss = cv2.GaussianBlur(reference,(5,5),cv2.BORDER_DEFAULT)
-    reference_normalized = equalize_histogram( reference )
+    reference_normalized = sf.equalize_histogram( reference )
     #reference_histogram = cv2.calcHist( ref_gauss,[0], None, [8], [0,256] )
     refImg["values"], refImg["counts"] = np.unique( reference_normalized.ravel(), return_counts=True )
     refImg["quantiles"] = np.cumsum(refImg["counts"]).astype(np.float64)
@@ -151,7 +115,7 @@ def hist_matching( source, refImg, settings, position, cropped_images = None ):
     if not cropped_images == None:
         avg_color_list = []
         for i in range(len(cropped_images)):# cropped_image in cropped_images:
-            avg_color_list.append( get_avg_color( equalize_histogram( cropped_images[i] ) ) )
+            avg_color_list.append( get_avg_color( sf.equalize_histogram( cropped_images[i] ) ) )
         closest_to_ref = min( range(len(avg_color_list)), key=lambda i: abs(avg_color_list[i] - refImg["avg_color"]))
         alt_source = cropped_images[ closest_to_ref ].ravel()
         #src_values = src_values
@@ -202,7 +166,7 @@ def startProcess( file, settings, refImg, position ):
     # check if correction attempt is necessary 
     if settings["correctionAttempt"] or settings["forceCorrectionAttempt"]:
         # if the average color of an image is higher than "allowed_brightness_difference", do a correction attempt
-        src_avg_color = get_avg_color( equalize_histogram( source ) )
+        src_avg_color = get_avg_color( sf.equalize_histogram( source ) )
         if ( (src_avg_color < refImg["avg_color"] - allowed_brightness_difference) or (src_avg_color > refImg["avg_color"] + allowed_brightness_difference) or settings["forceCorrectionAttempt"] ):
             # crop the images and run histogram matching using the cropped images instead
             if settings["showDebuggingOutput"]:
@@ -238,11 +202,11 @@ if __name__ == '__main__':
         "workingDirectory" : "",
         "targetDirectory"  : "",
         "referenceFilePath" : "",
+        "last_image_name" : "",
         "outputDirName" : "corrected",
         "count" : 0,
         "coreCount" : coreCount,
         "processCount" : (coreCount - 1) if coreCount > 1 else 1
-
     }
     position = 0
 
@@ -262,7 +226,6 @@ if __name__ == '__main__':
 
     ## count files
     fileList = []
-    last_image_name = ""
     if os.path.isdir( settings["workingDirectory"] ) :
         settings["targetDirectory"] = settings["workingDirectory"] + '/' + settings["outputDirName"] + '/'
         # create output directory if it does not exist
@@ -272,16 +235,15 @@ if __name__ == '__main__':
         for file in os.listdir(settings["workingDirectory"]):
             if ( file.endswith( ".tif" ) or file.endswith( ".TIF" ) ):
                 fileList.append( file )
-                last_image_name = os.fsdecode(file)
                 settings["count"] += 1
 
-    print( str( settings["count"] ) + " Tiffs found!" )
-    # load reference image
-    load_reference( settings )
+        print( str( settings["count"] ) + " Tiffs found!" )
+        settings["last_image_name"] = os.fsdecode( fileList[-1] )
 
-    if os.path.isdir( settings["workingDirectory"] ) :
+        # load reference image
+        load_reference( settings )
+
         # processing files
-
         pool = multiprocessing.Pool( settings["processCount"] )
         for file in fileList:
             position += 1
@@ -292,16 +254,8 @@ if __name__ == '__main__':
         pool.join()
 
         # stitch using MIST
-        if ( settings["runImageJ_Script"] and imageJInPATH( settings ) ):
-            # get dimensions from last file name: Tile_005-005-000000_0-000.tif
-            dim = last_image_name.split("_")# ..., 005-005-000000, ...
-            dim = dim[1].split("-")# 005, 005, ...
-            
-            MIST_Stitching( settings, dim[0].lstrip("0"), dim[1].lstrip("0") )
-            #remove directory wit corrected tiles
-            if settings["delete_interim_results"] :
-                shutil.rmtree( settings["targetDirectory"] )
-        else:
-            if settings["showDebuggingOutput"] : print( "...doing nothing!" )
+        sf.stitch( settings )
+    else:
+        print( "directory not found!" )
 
     print( "Script DONE!" )
